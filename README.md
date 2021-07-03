@@ -1,16 +1,10 @@
-# Jeton Network Pallet Template
+# Jeton Network Pallet Rock-Paper-Scissor (RPS)
 
-This is a template for a Jeton Network pallet which lives as its own crate so it can be imported into multiple runtimes. It is based on the ["template" pallet](https://github.com/paritytech/substrate/tree/master/bin/node-template/pallets/template) that is included with the [Substrate node template](https://github.com/paritytech/substrate/tree/master/bin/node-template).
-
-Check out the [HOWTO](HOWTO.md) to learn how to use this for your own runtime module.
-
-This README should act as a general template for distributing your pallet to others.
+This is a rock-paper-scissor Substrate pallet which lives as its own crate so it can be imported into multiple runtimes.
 
 ## Purpose
 
-This pallet acts as a template for building other pallets.
-
-It currently allows a user to put a `u32` value into storage, which triggers a runtime event.
+This pallet implements the rock-paper-scissor game as a pattern for obfuscating player informations and reavel them later in game.
 
 ## Dependencies
 
@@ -30,7 +24,7 @@ To add this pallet to your runtime, simply include the following to your runtime
 
 ```TOML
 # external pallets
-pallet-template = {default-features = false, version = '0.1.0', git = 'https://github.com/JetonNetwork/pallet-jton-template.git'}
+pallet-rps = {default-features = false, version = '0.1.0', git = 'https://github.com/JetonNetwork/pallet-jton-rps.git'}
 ```
 
 and update your runtime's `std` feature to include this pallet:
@@ -38,7 +32,7 @@ and update your runtime's `std` feature to include this pallet:
 ```TOML
 std = [
     # --snip--
-    'pallet-template/std',
+    'pallet-rps/std',
 ]
 ```
 
@@ -48,7 +42,7 @@ You should implement it's trait like so:
 
 ```rust
 /// Used for test_module
-impl pallet_template::Config for Runtime {
+impl pallet_rps::Config for Runtime {
 	type Event = Event;
 }
 ```
@@ -56,12 +50,12 @@ impl pallet_template::Config for Runtime {
 and include it in your `construct_runtime!` macro:
 
 ```rust
-Template: pallet_template::{Module, Call, Storage, Event<T>},
+RockPaperScissor: pallet_rps::{Pallet, Call, Storage, Event<T>},
 ```
 
 ### Genesis Configuration
 
-This template pallet does not have any genesis configuration.
+This rps pallet does not have any genesis configuration.
 
 ## Reference Docs
 

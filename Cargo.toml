@@ -1,12 +1,12 @@
 [package]
-name = 'pallet-jton_template'
+name = 'pallet-jton_rps'
 version = '0.1.0'
-description = 'Jeton Network pallet template'
+description = 'Jeton Network pallet rps'
 authors = ['Jeton Network <https://github.com/JetonNetwork>']
 edition = '2018'
 homepage = 'https://jeton.network'
 license = 'Apache-2.0'
-repository = 'https://github.com/JetonNetwork/pallet-jton-template/'
+repository = 'https://github.com/JetonNetwork/pallet-jton-rps/'
 
 [package.metadata.docs.rs]
 targets = ['x86_64-unknown-linux-gnu']
