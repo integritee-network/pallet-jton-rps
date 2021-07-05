@@ -21,7 +21,7 @@ frame_support::construct_runtime!(
 	{
 		System: frame_system::{Pallet, Call, Config, Storage, Event<T>},
 		MatchMaker: pallet_matchmaker::{Pallet, Call, Storage, Event<T>},
-		RockPaperScissor: pallet_rps::{Pallet, Call, Storage, Event<T>},
+		RockPaperScissor: pallet_rps::{Pallet, Call, Config<T>, Storage, Event<T>},
 	}
 );
 
@@ -79,6 +79,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	//frame_system::GenesisConfig::default().build_storage::<Test>().unwrap().into()
 	let t = GenesisConfig {
 			frame_system: Default::default(),
+			pallet_rps: Default::default(),
 		}.build_storage().unwrap();
 		t.into()
 }

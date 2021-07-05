@@ -39,18 +39,11 @@ mod benchmarking;
 pub enum MatchState<AccountId> {
 	None,
 	Initiate(Vec<AccountId>),
-	Running(Vec<AccountId>),
+	Choose(Vec<AccountId>),
+	Reveal(Vec<AccountId>),
 	Finished(AccountId),
 }
 impl<AccountId> Default for MatchState<AccountId> { fn default() -> Self { Self::None } }
-
-#[derive(Encode, Decode, Clone, PartialEq, Debug)]
-pub enum GameState<AccountId> {
-	None,
-	Choose(Vec<AccountId>),
-	Reveal(Vec<AccountId>),
-}
-impl<AccountId> Default for GameState<AccountId> { fn default() -> Self { Self::None } }
 
 #[derive(Encode, Decode, Clone, PartialEq, Debug)]
 pub enum WeaponType {
@@ -61,14 +54,21 @@ pub enum WeaponType {
 }
 impl Default for WeaponType { fn default() -> Self { Self::None } }
 
+#[derive(Encode, Decode, Clone, PartialEq, Debug)]
+pub enum Choice<Hash> {
+	None,
+	Choose(Hash),
+	Reveal(WeaponType),
+}
+impl<Hash> Default for Choice<Hash> { fn default() -> Self { Self::None } }
+
 /// Connect four board structure containing two players and the board
 #[derive(Encode, Decode, Default, Clone, PartialEq)]
 #[cfg_attr(feature = "std", derive(Debug))]
-pub struct Game<Hash, AccountId, Blocknumber> {
+pub struct Game<Hash, AccountId, BlockNumber> {
 	id: Hash,
 	players: Vec<AccountId>,
-	last_action: Blocknumber,
-	game_state: GameState<AccountId>,
+	last_action: BlockNumber,
 	match_state: MatchState<AccountId>,
 }
 
@@ -108,6 +108,10 @@ pub mod pallet {
 	// https://substrate.dev/docs/en/knowledgebase/runtime/storage#declaring-storage-items
 	pub type Something<T> = StorageValue<_, u32>;
 
+	#[pallet::storage]
+	#[pallet::getter(fn founder_key)]
+	pub type FounderKey<T: Config> = StorageValue<_, T::AccountId>;
+
 	// Default value for Nonce
 	#[pallet::type_value]
 	pub fn NonceDefault<T: Config>() -> u64 { 0 }
@@ -128,7 +132,31 @@ pub mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn player_choice)]
 	/// Player choices of each game.
-	pub type PlayerChoice<T: Config> = StorageDoubleMap<_, Blake2_128Concat, T::Hash, Blake2_128Concat, T::AccountId, T::Hash, ValueQuery>;
+	pub type PlayerChoice<T: Config> = StorageDoubleMap<_, Blake2_128Concat, T::Hash, Blake2_128Concat, T::AccountId, Choice<T::Hash>, ValueQuery>;
+
+	// The genesis config type.
+	#[pallet::genesis_config]
+	pub struct GenesisConfig<T: Config> {
+		pub founder_key: T::AccountId,
+	}
+
+	// The default value for the genesis config type.
+	#[cfg(feature = "std")]
+	impl<T: Config> Default for GenesisConfig<T> {
+		fn default() -> Self {
+			Self {
+				founder_key: Default::default(),
+			}
+		}
+	}
+
+	// The build of genesis for the pallet.
+	#[pallet::genesis_build]
+	impl<T: Config> GenesisBuild<T> for GenesisConfig<T> {
+		fn build(&self) {
+			<FounderKey<T>>::put(&self.founder_key);
+		}
+	}
 
 	// Pallets use events to inform users when important changes are made.
 	// https://substrate.dev/docs/en/knowledgebase/runtime/events
@@ -139,10 +167,10 @@ pub mod pallet {
 		/// Event documentation should end with an array that provides descriptive names for event
 		/// parameters. [something, who]
 		SomethingStored(u32, T::AccountId),
-		/// Player choosed his attack.
-		PlayerChoosed(T::AccountId),
-		/// A new board got created.
+		/// A new game got created.
 		NewGame(T::Hash),
+		/// A games match state changed.
+		MatchStateChange(T::Hash, MatchState<T::AccountId>),
 	}
 
 	// Errors inform users that something went wrong.
@@ -152,10 +180,24 @@ pub mod pallet {
 		NoneValue,
 		/// Errors should have helpful documentation associated with them.
 		StorageOverflow,
+		/// Only founder is allowed to do this.
+		OnlyFounderAllowed,
+		/// Player has already a game.
+		PlayerHasGame,
 		/// Player has no active game or there is no such game.
 		GameDoesntExist,
-		/// Player has already choosen, can't undo.
-		PlayerChoiceFinish,
+		/// Player choice already exist.
+		PlayerChoiceExist,
+		/// Player choice doesn't exist.
+		PlayerChoiceDoesntExist,
+		/// Bad initiate attempt.
+		BadInitiate,
+		/// Bad choice attempt.
+		BadChoice,
+		// Bad reveal attempt.
+		BadReveal,
+		/// Player is already queued.
+		AlreadyQueued,
 	}
 
 	#[pallet::hooks]
@@ -247,8 +289,39 @@ pub mod pallet {
 			}
 		}
 
+		/// Queue sender up for a game, ranking brackets
+		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
+		pub fn queue(origin: OriginFor<T>) -> DispatchResult {
+			let sender = ensure_signed(origin)?;
+
+			// Make sure player has no board open.
+			ensure!(!PlayerGame::<T>::contains_key(&sender), Error::<T>::PlayerHasGame);
+
+			let bracket: u8 = 0;
+			// Add player to queue, duplicate check is done in matchmaker.
+			if !T::MatchMaker::add_queue(sender, bracket) {
+				return Err(Error::<T>::AlreadyQueued)?
+			} 
+
+			Ok(())
+		}
+
+		/// Empty all brackets, this is a founder only extrinsic.
+		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
+		pub fn empty_queue(origin: OriginFor<T>) -> DispatchResult {
+			let sender = ensure_signed(origin)?;
+
+			// Make sure sender is founder.
+			ensure!(sender == Self::founder_key().unwrap(), Error::<T>::OnlyFounderAllowed);
+
+			// Empty queues
+			T::MatchMaker::all_empty_queue();
+
+			Ok(())
+		}
+
 		#[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
-		pub fn make_choice(origin: OriginFor<T>, choice: WeaponType, salt: [u8; 32]) -> DispatchResult {
+		pub fn initiate(origin: OriginFor<T>) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 
 			// Make sure player has a running game.
@@ -257,31 +330,101 @@ pub mod pallet {
 
 			// Make sure game exists.
 			ensure!(Games::<T>::contains_key(&game_id), Error::<T>::GameDoesntExist);
+
+			// get players game
 			let game = Self::games(&game_id);
 
-			// Make sure player has a running game.
-			ensure!(!PlayerChoice::<T>::contains_key(&game_id, &sender), Error::<T>::PlayerChoiceFinish);
+			// check if we have correct state
+			if let MatchState::Initiate(_) = game.match_state {
+				// check we have the correct state
+			} else {
+				Err(Error::<T>::BadInitiate)?
+			}
 
-			let mut choice_value = salt;
-			choice_value[31] = choice as u8;
-			let choice_hashed = blake2_256(&choice_value);
+			// match state change
+			if !Self::match_state_change(sender, game) {
+				Err(Error::<T>::BadInitiate)?
+			}
+				
+			Ok(())		
+		}
+
+		#[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
+		pub fn make_choice(origin: OriginFor<T>, choice: WeaponType, salt: [u8; 32]) -> DispatchResult {
+			let sender = ensure_signed(origin)?;
+
+			// Make sure player has a running game.
+			ensure!(PlayerGame::<T>::contains_key(&sender), Error::<T>::GameDoesntExist);
+			let game_id = Self::player_game(&sender);
+			
+			// Make sure game exists.
+			ensure!(Games::<T>::contains_key(&game_id), Error::<T>::GameDoesntExist);
+			// Make sure player has not already choosen in this game.
+			ensure!(!PlayerChoice::<T>::contains_key(&game_id, &sender), Error::<T>::PlayerChoiceExist);
+
+			// get players game
+			let game = Self::games(&game_id);
+
+			// check if we have correct state
+			if let MatchState::Choose(_) = game.match_state {
+				// check we have the correct state
+			} else {
+				Err(Error::<T>::BadChoice)?
+			}
 
 			// insert choice into the double map.
-			<PlayerChoice<T>>::insert(game_id, &sender, choice_hashed.using_encoded(T::Hashing::hash));
+			<PlayerChoice<T>>::insert(game_id, &sender, Choice::Choose(Self::hash_choice(salt, choice as u8)));
 
-			// Emit an event.
-			Self::deposit_event(Event::PlayerChoosed(sender));
+			// match state change
+			if !Self::match_state_change(sender, game) {
+				Err(Error::<T>::BadChoice)?
+			}
 
 			Ok(())
 		}
 
 		#[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
-		pub fn reveal(origin: OriginFor<T>, choice: WeaponType, salt: T::Hash) -> DispatchResult {
-			let player = ensure_signed(origin)?;
+		pub fn reveal(origin: OriginFor<T>, choice: WeaponType, salt: [u8; 32]) -> DispatchResult {
+			let sender = ensure_signed(origin)?;
 
+			// Make sure player has a running game.
+			ensure!(PlayerGame::<T>::contains_key(&sender), Error::<T>::GameDoesntExist);
+			let game_id = Self::player_game(&sender);
 
-			// Emit an event.
-			Self::deposit_event(Event::PlayerChoosed(player));
+			// Make sure game exists.
+			ensure!(Games::<T>::contains_key(&game_id), Error::<T>::GameDoesntExist);
+			// Make sure player has already choosen in this game.
+			ensure!(PlayerChoice::<T>::contains_key(&game_id, &sender), Error::<T>::PlayerChoiceDoesntExist);
+
+			// get choice of player
+			let player_choice = PlayerChoice::<T>::get(&game_id, &sender);
+
+			// get players game
+			let game = Self::games(&game_id);
+
+			// check if we have correct state
+			if let MatchState::Reveal(_) = game.match_state {
+				// check we have the correct state
+			} else {
+				Err(Error::<T>::BadReveal)?
+			}
+
+			match player_choice {
+				Choice::Choose(org_hash) => {
+					// compare persisted hash with revealing value
+					if org_hash == Self::hash_choice(salt, choice.clone() as u8)  {
+						PlayerChoice::<T>::insert(&game_id, &sender, Choice::Reveal(choice));
+					} else {
+						Err(Error::<T>::BadReveal)?
+					}
+				},
+				_ => Err(Error::<T>::BadReveal)?,
+			}
+
+			// match state change
+			if !Self::match_state_change(sender, game) {
+				Err(Error::<T>::BadReveal)?
+			}
 
 			Ok(())
 		}
@@ -324,7 +467,6 @@ impl<T: Config> Pallet<T> {
 			id: game_id,
 			players: players.clone(),
 			last_action: block_number,
-			game_state: GameState::None,
 			match_state: MatchState::Initiate(players.clone()),
 		};
 
@@ -342,10 +484,155 @@ impl<T: Config> Pallet<T> {
 		game_id
 	}
 
-	fn evaluate(
-		game_id: T::Hash
+	fn hash_choice(
+		salt: [u8; 32],
+		choice: u8
+	) -> T::Hash {
+		let mut choice_value = salt;
+		choice_value[31] = choice as u8;
+		let choice_hashed = blake2_256(&choice_value);
+		// return hashed choice
+		choice_hashed.using_encoded(T::Hashing::hash)
+	}
+
+	fn try_remove(
+		player: T::AccountId,
+		players: &mut Vec<T::AccountId>
 	) -> bool {
+		if let Some(p) = players.iter().position(|x| *x == player) {
+			// remove player from vec
+			players.swap_remove(p);
+			return true;
+		} 
+		
+		false
+	}
+
+	fn match_state_change(
+		player: T::AccountId,
+		mut game: Game<T::Hash, T::AccountId, T::BlockNumber>
+	) -> bool {
+
+		match game.match_state.clone() {
+
+			MatchState::Initiate(mut players) => {
+				if Self::try_remove(player, &mut players) {
+					// check if all players have initiated
+					if players.is_empty() {
+						game.match_state = MatchState::Choose(game.players.clone());
+					} else {
+						game.match_state = MatchState::Initiate(players);
+					}
+				} else {
+					return false;
+				}
+			},
+
+			MatchState::Choose(mut players) => {
+				if Self::try_remove(player, &mut players) {
+					// check if all players have initiated
+					if players.is_empty() {
+						game.match_state = MatchState::Reveal(game.players.clone());
+					} else {
+						game.match_state = MatchState::Choose(players);
+					}
+				} else {
+					return false;
+				}
+			},
+
+			MatchState::Reveal(mut players) => {
+				if Self::try_remove(player, &mut players) {
+					// check if all players have initiated
+					if players.is_empty() {
+						// evaluate game here
+						game.match_state = MatchState::Finished(Self::evaluate(game.clone()));
+					} else {
+						game.match_state = MatchState::Reveal(players);
+					}
+				} else {
+					return false;
+				}
+			},
+			_ => return false,
+		}
+		
+		Games::<T>::insert(game.id, game);
+		
 		true
+	}
+
+	fn evaluate(
+		game: Game<T::Hash, T::AccountId, T::BlockNumber>
+	) -> T::AccountId {
+
+		let mut last_choice: WeaponType = Default::default();
+		let mut last_player: T::AccountId = Default::default();
+		for player in &game.players {
+			if PlayerChoice::<T>::contains_key(game.id, player) {
+				if let Choice::Reveal(choice) = Self::player_choice(game.id, player) {
+					match Self::game_logic(&choice, &last_choice) {
+						1 => {
+							last_choice = choice.clone();
+							last_player = player.clone();
+						},
+						2 => {},
+						_ => {
+							last_player = Default::default();
+						}
+					}
+				}
+
+			}
+			
+		}
+
+		last_player
+	}
+
+	fn game_logic(
+		a: &WeaponType,
+		b: &WeaponType
+	) -> u8 {
+		match a {
+			WeaponType::None => {
+				if a == b {
+					return 0;
+				} else {
+					return 2;
+				}
+			},
+			WeaponType::Rock => {
+				if a == b {
+					return 0; 
+				} else if let WeaponType::Paper = b {
+					return 2;
+				} else {
+					return 1;
+				}
+			},
+			WeaponType::Paper => {
+				if a == b {
+					return 0; 
+				} else if let WeaponType::Scissor = b {
+					return 2;
+				} else {
+					return 1;
+				}
+			},
+			WeaponType::Scissor => {
+				if a == b {
+					return 0; 
+				} else if let WeaponType::Rock = b {
+					return 2;
+				} else {
+					return 1;
+				}
+			},
+			_ => { 
+				return 0;
+			}
+		}
 	}
 }
 
