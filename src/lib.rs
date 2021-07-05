@@ -7,6 +7,14 @@
 pub use pallet::*;
 
 use codec::{Decode, Encode};
+use frame_support::{
+	log,
+	traits::{Randomness, LockIdentifier, schedule::{Named, DispatchTime}},
+};
+use sp_std::vec::{
+	Vec
+};
+use log::info;
 
 #[cfg(test)]
 mod mock;
@@ -16,6 +24,34 @@ mod tests;
 
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
+
+#[derive(Encode, Decode, Clone, PartialEq, Debug)]
+pub enum MatchState<AccountId> {
+	None,
+	Accepted(Vec<AccountId>),
+	Running(Vec<AccountId>),
+	Finished(AccountId),
+}
+impl<AccountId> Default for MatchState<AccountId> { fn default() -> Self { Self::None } }
+
+#[derive(Encode, Decode, Clone, PartialEq, Debug)]
+pub enum WeaponType {
+	None,
+	Rock,
+	Paper,
+	Scissor,
+}
+impl Default for WeaponType { fn default() -> Self { Self::None } }
+
+
+/// Connect four board structure containing two players and the board
+#[derive(Encode, Decode, Default, Clone, PartialEq)]
+#[cfg_attr(feature = "std", derive(Debug))]
+pub struct Match<Hash, AccountId> {
+	id: Hash,
+	players: Vec<AccountId>,
+	match_state: MatchState<AccountId>,
+}
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -30,6 +66,7 @@ pub mod pallet {
 	pub trait Config: frame_system::Config {
 		/// Because this pallet emits events, it depends on the runtime's definition of an event.
 		type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
+		
 	}
 
 	#[pallet::pallet]
@@ -53,6 +90,8 @@ pub mod pallet {
 		/// Event documentation should end with an array that provides descriptive names for event
 		/// parameters. [something, who]
 		SomethingStored(u32, T::AccountId),
+		/// Player choosed his attack.
+		PlayerChoosed(T::AccountId),
 	}
 
 	// Errors inform users that something went wrong.
@@ -74,6 +113,22 @@ pub mod pallet {
 			// Anything that needs to be done at the start of the block.
 			// We don't do anything here.
 			0
+		}
+
+		// `on_finalize` is executed at the end of block after all extrinsic are dispatched.
+		fn on_finalize(_n: BlockNumberFor<T>) {
+			// Perform necessary data/state clean up here.
+		}
+
+		// A runtime code run after every block and have access to extended set of APIs.
+		//
+		// For instance you can generate extrinsics for the upcoming produced block.
+		fn offchain_worker(_n: T::BlockNumber) {
+			// We don't do anything here.
+			// but we could dispatch extrinsic (transaction/unsigned/inherent) using
+			// sp_io::submit_extrinsic.
+			// To see example on offchain worker, please refer to example-offchain-worker pallet
+		 	// accompanied in this repository.
 		}
 	}
 
@@ -117,6 +172,17 @@ pub mod pallet {
 					Ok(())
 				},
 			}
+		}
+
+		#[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
+		pub fn makeChoice(origin: OriginFor<T>) -> DispatchResult {
+			let player = ensure_signed(origin)?;
+
+
+			// Emit an event.
+			Self::deposit_event(Event::PlayerChoosed(player));
+
+			Ok(())
 		}
 	}
 }
