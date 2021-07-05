@@ -1,10 +1,13 @@
 use crate as pallet_rps;
 use sp_core::H256;
 use frame_support::parameter_types;
+use frame_support_test::TestRandomness;
 use sp_runtime::{
-	traits::{BlakeTwo256, IdentityLookup}, testing::Header,
+	BuildStorage,
+	testing::Header,
+	traits::{BlakeTwo256, IdentityLookup},
+	Perbill,
 };
-use frame_system as system;
 
 type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Test>;
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -17,6 +20,7 @@ frame_support::construct_runtime!(
 		UncheckedExtrinsic = UncheckedExtrinsic,
 	{
 		System: frame_system::{Pallet, Call, Config, Storage, Event<T>},
+		MatchMaker: pallet_matchmaker::{Pallet, Call, Storage, Event<T>},
 		RockPaperScissor: pallet_rps::{Pallet, Call, Storage, Event<T>},
 	}
 );
@@ -26,7 +30,7 @@ parameter_types! {
 	pub const SS58Prefix: u8 = 42;
 }
 
-impl system::Config for Test {
+impl frame_system::Config for Test {
 	type BaseCallFilter = ();
 	type BlockWeights = ();
 	type BlockLength = ();
@@ -52,11 +56,29 @@ impl system::Config for Test {
 	type OnSetCode = ();
 }
 
-impl pallet_rps::Config for Test {
-	type Event = Event;
+parameter_types! {
+	pub const AmountPlayers: u8 = 2;
+	pub const AmountBrackets: u8 = 2;
 }
 
-// Build genesis storage according to the mock runtime.
+/// Used for matchmaking in pallets/connectfour.
+impl pallet_matchmaker::Config for Test {
+	type Event = Event;
+	type AmountPlayers = AmountPlayers;
+	type AmountBrackets = AmountBrackets;
+}
+
+impl pallet_rps::Config for Test {
+	type Event = Event;
+	type Randomness = TestRandomness<Self>;
+	type MatchMaker = MatchMaker;
+}
+
+/// Build genesis storage according to the mock runtime.
 pub fn new_test_ext() -> sp_io::TestExternalities {
-	system::GenesisConfig::default().build_storage::<Test>().unwrap().into()
+	//frame_system::GenesisConfig::default().build_storage::<Test>().unwrap().into()
+	let t = GenesisConfig {
+			frame_system: Default::default(),
+		}.build_storage().unwrap();
+		t.into()
 }
