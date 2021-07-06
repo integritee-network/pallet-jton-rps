@@ -192,12 +192,8 @@ pub mod pallet {
 		PlayerChoiceExist,
 		/// Player choice doesn't exist.
 		PlayerChoiceDoesntExist,
-		/// Bad initiate attempt.
-		BadInitiate,
-		/// Bad choice attempt.
-		BadChoice,
-		// Bad reveal attempt.
-		BadReveal,
+		/// Bad behaviour, trying to cheat?
+		BadBehaviour,
 		/// Player is already queued.
 		AlreadyQueued,
 	}
@@ -367,12 +363,12 @@ pub mod pallet {
 			if let MatchState::Initiate(_) = game.match_state {
 				// check we have the correct state
 			} else {
-				Err(Error::<T>::BadInitiate)?
+				Err(Error::<T>::BadBehaviour)?
 			}
 
 			// match state change
 			if !Self::match_state_change(sender, game) {
-				Err(Error::<T>::BadInitiate)?
+				Err(Error::<T>::BadBehaviour)?
 			}
 				
 			Ok(())		
@@ -398,7 +394,7 @@ pub mod pallet {
 			if let MatchState::Choose(_) = game.match_state {
 				// check we have the correct state
 			} else {
-				Err(Error::<T>::BadChoice)?
+				Err(Error::<T>::BadBehaviour)?
 			}
 
 			// insert choice into the double map.
@@ -406,7 +402,7 @@ pub mod pallet {
 
 			// match state change
 			if !Self::match_state_change(sender, game) {
-				Err(Error::<T>::BadChoice)?
+				Err(Error::<T>::BadBehaviour)?
 			}
 
 			Ok(())
@@ -435,7 +431,7 @@ pub mod pallet {
 			if let MatchState::Reveal(_) = game.match_state {
 				// check we have the correct state
 			} else {
-				Err(Error::<T>::BadReveal)?
+				Err(Error::<T>::BadBehaviour)?
 			}
 
 			match player_choice {
@@ -444,15 +440,15 @@ pub mod pallet {
 					if org_hash == Self::hash_choice(salt, choice.clone() as u8)  {
 						PlayerChoice::<T>::insert(&game_id, &sender, Choice::Reveal(choice));
 					} else {
-						Err(Error::<T>::BadReveal)?
+						Err(Error::<T>::BadBehaviour)?
 					}
 				},
-				_ => Err(Error::<T>::BadReveal)?,
+				_ => Err(Error::<T>::BadBehaviour)?,
 			}
 
 			// match state change
 			if !Self::match_state_change(sender, game) {
-				Err(Error::<T>::BadReveal)?
+				Err(Error::<T>::BadBehaviour)?
 			}
 
 			Ok(())
@@ -545,42 +541,39 @@ impl<T: Config> Pallet<T> {
 		match game.match_state.clone() {
 
 			MatchState::Initiate(mut players) => {
-				if Self::try_remove(player, &mut players) {
-					// check if all players have initiated
-					if players.is_empty() {
-						game.match_state = MatchState::Choose(game.players.clone());
-					} else {
-						game.match_state = MatchState::Initiate(players);
-					}
-				} else {
+				if !Self::try_remove(player, &mut players) {
 					return false;
 				}
+				// check if all players have initiated
+				if players.is_empty() {
+					game.match_state = MatchState::Choose(game.players.clone());
+				} else {
+					game.match_state = MatchState::Initiate(players);
+				}				
 			},
 
 			MatchState::Choose(mut players) => {
-				if Self::try_remove(player, &mut players) {
-					// check if all players have initiated
-					if players.is_empty() {
-						game.match_state = MatchState::Reveal(game.players.clone());
-					} else {
-						game.match_state = MatchState::Choose(players);
-					}
-				} else {
+				if !Self::try_remove(player, &mut players) {
 					return false;
+				}
+				// check if all players have choosen
+				if players.is_empty() {
+					game.match_state = MatchState::Reveal(game.players.clone());
+				} else {
+					game.match_state = MatchState::Choose(players);
 				}
 			},
 
 			MatchState::Reveal(mut players) => {
-				if Self::try_remove(player, &mut players) {
-					// check if all players have initiated
-					if players.is_empty() {
-						// evaluate game here
-						game.match_state = MatchState::Finished(Self::evaluate(game.clone()));
-					} else {
-						game.match_state = MatchState::Reveal(players);
-					}
-				} else {
+				if !Self::try_remove(player, &mut players) {
 					return false;
+				}
+				// check if all players have revealed
+				if players.is_empty() {
+					// do game evaluation here
+					game.match_state = MatchState::Finished(Self::evaluate(game.clone()));
+				} else {
+					game.match_state = MatchState::Reveal(players);
 				}
 			},
 			_ => return false,

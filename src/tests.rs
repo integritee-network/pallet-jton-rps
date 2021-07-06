@@ -134,9 +134,9 @@ fn try_simple_rps_game() {
 
 		// trying to cheat !!!
 		assert_noop!(RockPaperScissor::reveal(Origin::signed(player_2), WeaponType::Rock, salt_2),
-			Error::<Test>::BadReveal);
+			Error::<Test>::BadBehaviour);
 		assert_noop!(RockPaperScissor::reveal(Origin::signed(player_2), WeaponType::Paper, salt_1),
-			Error::<Test>::BadReveal);
+			Error::<Test>::BadBehaviour);
 
 		assert_ok!(RockPaperScissor::reveal(Origin::signed(player_2), WeaponType::Paper, salt_2));
 		let game = RockPaperScissor::games(game_id);
