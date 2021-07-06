@@ -182,6 +182,8 @@ pub mod pallet {
 		StorageOverflow,
 		/// Only founder is allowed to do this.
 		OnlyFounderAllowed,
+		/// Player can't play against them self.
+		NoFakePlay,
 		/// Player has already a game.
 		PlayerHasGame,
 		/// Player has no active game or there is no such game.
@@ -218,7 +220,7 @@ pub mod pallet {
 				// if result is not empty we have a valid match
 				if !result.is_empty() {
 					// Create new game
-					let _board_id = Self::create_game(result);
+					let _game_id = Self::create_game(result);
 					// weights need to be adjusted
 					tot_weights = tot_weights + T::DbWeight::get().reads_writes(1,1);
 					continue;
@@ -289,6 +291,33 @@ pub mod pallet {
 			}
 		}
 
+		/// Create game for two players
+		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
+		pub fn new_game(origin: OriginFor<T>, opponent: T::AccountId) -> DispatchResult {
+			
+			let sender = ensure_signed(origin)?;
+
+			// Don't allow playing against yourself.
+			ensure!(sender != opponent, Error::<T>::NoFakePlay);
+
+			// Don't allow queued player to create a game.
+			ensure!(!T::MatchMaker::is_queued(sender.clone()), Error::<T>::AlreadyQueued);
+			ensure!(!T::MatchMaker::is_queued(opponent.clone()), Error::<T>::AlreadyQueued);
+
+			// Make sure players have no board open.
+			ensure!(!PlayerGame::<T>::contains_key(&sender), Error::<T>::PlayerHasGame);
+			ensure!(!PlayerGame::<T>::contains_key(&opponent), Error::<T>::PlayerHasGame);
+			
+			let mut players = Vec::new();
+			players.push(sender.clone());
+			players.push(opponent.clone());
+
+			// Create new game
+			let _game_id = Self::create_game(players);
+
+			Ok(())
+		}
+
 		/// Queue sender up for a game, ranking brackets
 		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
 		pub fn queue(origin: OriginFor<T>) -> DispatchResult {
@@ -350,7 +379,7 @@ pub mod pallet {
 		}
 
 		#[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
-		pub fn make_choice(origin: OriginFor<T>, choice: WeaponType, salt: [u8; 32]) -> DispatchResult {
+		pub fn choose(origin: OriginFor<T>, choice: WeaponType, salt: [u8; 32]) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 
 			// Make sure player has a running game.
@@ -557,6 +586,9 @@ impl<T: Config> Pallet<T> {
 			_ => return false,
 		}
 		
+		// get current blocknumber
+		let block_number = <frame_system::Pallet<T>>::block_number();
+		game.last_action = block_number;
 		Games::<T>::insert(game.id, game);
 		
 		true
@@ -629,9 +661,6 @@ impl<T: Config> Pallet<T> {
 					return 1;
 				}
 			},
-			_ => { 
-				return 0;
-			}
 		}
 	}
 }
