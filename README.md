@@ -1,6 +1,8 @@
 # Jeton Network Pallet Rock-Paper-Scissor (RPS)
 
-This is a rock-paper-scissor Substrate pallet which lives as its own crate so it can be imported into multiple runtimes.
+This is a rock-paper-scissor Substrate pallet which lives as its own crate so it can be imported into multiple runtimes.  
+
+*Important: For a real usage, the choose extrinsic needs to take hash and not a salt, the salt should only be provided in the last reveal step.*
 
 ## Purpose
 
