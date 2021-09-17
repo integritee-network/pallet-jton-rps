@@ -8,23 +8,16 @@ pub use pallet::*;
 
 use codec::{Decode, Encode};
 use frame_support::{
-	log,
-	traits::{Randomness, LockIdentifier, schedule::{Named, DispatchTime}},
+	traits::{Randomness},
 };
-use frame_system::{
-	WeightInfo
-};
+
 use sp_runtime::{
-	traits::{Hash, Dispatchable, TrailingZeroInput}
+	traits::{Hash, TrailingZeroInput}
 };
 use sp_std::vec::{
 	Vec
 };
 use sp_io::hashing::blake2_256;
-
-use pallet_matchmaker::MatchFunc;
-
-use log::info;
 
 #[cfg(test)]
 mod mock;
@@ -65,14 +58,11 @@ impl<Hash> Default for Choice<Hash> { fn default() -> Self { Self::None } }
 /// Connect four board structure containing two players and the board
 #[derive(Encode, Decode, Default, Clone, PartialEq)]
 #[cfg_attr(feature = "std", derive(Debug))]
-pub struct Game<Hash, AccountId, BlockNumber> {
+pub struct Game<Hash, AccountId> {
 	id: Hash,
 	players: Vec<AccountId>,
-	last_action: BlockNumber,
 	match_state: MatchState<AccountId>,
 }
-
-const MAX_GAMES_PER_BLOCK: u8 = 10;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -91,26 +81,11 @@ pub mod pallet {
 
 		/// The generator used to supply randomness to contracts through `seal_random`.
 		type Randomness: Randomness<Self::Hash, Self::BlockNumber>;
-
-		/// Jton matchmaker pallet for match making.
-		type MatchMaker: MatchFunc<Self::AccountId>;
 	}
 
 	#[pallet::pallet]
 	#[pallet::generate_store(pub(super) trait Store)]
 	pub struct Pallet<T>(_);
-
-	// The pallet's runtime storage items.
-	// https://substrate.dev/docs/en/knowledgebase/runtime/storage
-	#[pallet::storage]
-	#[pallet::getter(fn something)]
-	// Learn more about declaring storage items:
-	// https://substrate.dev/docs/en/knowledgebase/runtime/storage#declaring-storage-items
-	pub type Something<T> = StorageValue<_, u32>;
-
-	#[pallet::storage]
-	#[pallet::getter(fn founder_key)]
-	pub type FounderKey<T: Config> = StorageValue<_, T::AccountId>;
 
 	// Default value for Nonce
 	#[pallet::type_value]
@@ -122,7 +97,7 @@ pub mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn games)]
 	/// Store all games that are currently being played.
-	pub type Games<T: Config> = StorageMap<_, Identity, T::Hash, Game<T::Hash, T::AccountId, T::BlockNumber>, ValueQuery>;
+	pub type Games<T: Config> = StorageMap<_, Identity, T::Hash, Game<T::Hash, T::AccountId>, ValueQuery>;
 
 	#[pallet::storage]
 	#[pallet::getter(fn player_game)]
@@ -134,39 +109,12 @@ pub mod pallet {
 	/// Player choices of each game.
 	pub type PlayerChoice<T: Config> = StorageDoubleMap<_, Blake2_128Concat, T::Hash, Blake2_128Concat, T::AccountId, Choice<T::Hash>, ValueQuery>;
 
-	// The genesis config type.
-	#[pallet::genesis_config]
-	pub struct GenesisConfig<T: Config> {
-		pub founder_key: T::AccountId,
-	}
-
-	// The default value for the genesis config type.
-	#[cfg(feature = "std")]
-	impl<T: Config> Default for GenesisConfig<T> {
-		fn default() -> Self {
-			Self {
-				founder_key: Default::default(),
-			}
-		}
-	}
-
-	// The build of genesis for the pallet.
-	#[pallet::genesis_build]
-	impl<T: Config> GenesisBuild<T> for GenesisConfig<T> {
-		fn build(&self) {
-			<FounderKey<T>>::put(&self.founder_key);
-		}
-	}
-
 	// Pallets use events to inform users when important changes are made.
 	// https://substrate.dev/docs/en/knowledgebase/runtime/events
 	#[pallet::event]
 	#[pallet::metadata(T::AccountId = "AccountId")]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		/// Event documentation should end with an array that provides descriptive names for event
-		/// parameters. [something, who]
-		SomethingStored(u32, T::AccountId),
 		/// A new game got created.
 		NewGame(T::Hash),
 		/// A games match state changed.
@@ -176,12 +124,6 @@ pub mod pallet {
 	// Errors inform users that something went wrong.
 	#[pallet::error]
 	pub enum Error<T> {
-		/// Error names should be descriptive.
-		NoneValue,
-		/// Errors should have helpful documentation associated with them.
-		StorageOverflow,
-		/// Only founder is allowed to do this.
-		OnlyFounderAllowed,
 		/// Player can't play against them self.
 		NoFakePlay,
 		/// Player has already a game.
@@ -194,55 +136,10 @@ pub mod pallet {
 		PlayerChoiceDoesntExist,
 		/// Bad behaviour, trying to cheat?
 		BadBehaviour,
-		/// Player is already queued.
-		AlreadyQueued,
 	}
 
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-		// `on_initialize` is executed at the beginning of the block before any extrinsic are
-		// dispatched.
-		//
-		// This function must return the weight consumed by `on_initialize` and `on_finalize`.
-		fn on_initialize(_: T::BlockNumber) -> Weight {
-			// Anything that needs to be done at the start of the block.
-			// We don't do anything here.
-			
-			// initial weights
-			let mut tot_weights = 10_000;
-			for _i in 0..MAX_GAMES_PER_BLOCK {
-				// try to create a match till we reached max games or no more matches available
-				let result = T::MatchMaker::try_match();
-				// if result is not empty we have a valid match
-				if !result.is_empty() {
-					// Create new game
-					let _game_id = Self::create_game(result);
-					// weights need to be adjusted
-					tot_weights = tot_weights + T::DbWeight::get().reads_writes(1,1);
-					continue;
-				}
-				break;
-			}
-
-			// return standard weigth for trying to fiond a match
-			return tot_weights
-		}
-
-		// `on_finalize` is executed at the end of block after all extrinsic are dispatched.
-		fn on_finalize(_n: BlockNumberFor<T>) {
-			// Perform necessary data/state clean up here.
-		}
-
-		// A runtime code run after every block and have access to extended set of APIs.
-		//
-		// For instance you can generate extrinsics for the upcoming produced block.
-		fn offchain_worker(_n: T::BlockNumber) {
-			// We don't do anything here.
-			// but we could dispatch extrinsic (transaction/unsigned/inherent) using
-			// sp_io::submit_extrinsic.
-			// To see example on offchain worker, please refer to example-offchain-worker pallet
-		 	// accompanied in this repository.
-		}
 	}
 
 	// Dispatchable functions allows users to interact with the pallet and invoke state changes.
@@ -250,42 +147,6 @@ pub mod pallet {
 	// Dispatchable functions must be annotated with a weight and must return a DispatchResult.
 	#[pallet::call]
 	impl<T:Config> Pallet<T> {
-		/// An example dispatchable that takes a singles value as a parameter, writes the value to
-		/// storage and emits an event. This function must be dispatched by a signed extrinsic.
-		#[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
-		pub fn do_something(origin: OriginFor<T>, something: u32) -> DispatchResult {
-			// Check that the extrinsic was signed and get the signer.
-			// This function will return an error if the extrinsic is not signed.
-			// https://substrate.dev/docs/en/knowledgebase/runtime/origin
-			let who = ensure_signed(origin)?;
-
-			// Update storage.
-			<Something<T>>::put(something);
-
-			// Emit an event.
-			Self::deposit_event(Event::SomethingStored(something, who));
-			// Return a successful DispatchResultWithPostInfo
-			Ok(())
-		}
-
-		/// An example dispatchable that may throw a custom error.
-		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
-		pub fn cause_error(origin: OriginFor<T>) -> DispatchResult {
-			let _who = ensure_signed(origin)?;
-
-			// Read a value from storage.
-			match <Something<T>>::get() {
-				// Return an error if the value has not been set.
-				None => Err(Error::<T>::NoneValue)?,
-				Some(old) => {
-					// Increment the value read from storage; will error in the event of overflow.
-					let new = old.checked_add(1).ok_or(Error::<T>::StorageOverflow)?;
-					// Update the value in storage with the incremented result.
-					<Something<T>>::put(new);
-					Ok(())
-				},
-			}
-		}
 
 		/// Create game for two players
 		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
@@ -295,10 +156,6 @@ pub mod pallet {
 
 			// Don't allow playing against yourself.
 			ensure!(sender != opponent, Error::<T>::NoFakePlay);
-
-			// Don't allow queued player to create a game.
-			ensure!(!T::MatchMaker::is_queued(sender.clone()), Error::<T>::AlreadyQueued);
-			ensure!(!T::MatchMaker::is_queued(opponent.clone()), Error::<T>::AlreadyQueued);
 
 			// Make sure players have no board open.
 			ensure!(!PlayerGame::<T>::contains_key(&sender), Error::<T>::PlayerHasGame);
@@ -310,37 +167,6 @@ pub mod pallet {
 
 			// Create new game
 			let _game_id = Self::create_game(players);
-
-			Ok(())
-		}
-
-		/// Queue sender up for a game, ranking brackets
-		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
-		pub fn queue(origin: OriginFor<T>) -> DispatchResult {
-			let sender = ensure_signed(origin)?;
-
-			// Make sure player has no board open.
-			ensure!(!PlayerGame::<T>::contains_key(&sender), Error::<T>::PlayerHasGame);
-
-			let bracket: u8 = 0;
-			// Add player to queue, duplicate check is done in matchmaker.
-			if !T::MatchMaker::add_queue(sender, bracket) {
-				return Err(Error::<T>::AlreadyQueued)?
-			} 
-
-			Ok(())
-		}
-
-		/// Empty all brackets, this is a founder only extrinsic.
-		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
-		pub fn empty_queue(origin: OriginFor<T>) -> DispatchResult {
-			let sender = ensure_signed(origin)?;
-
-			// Make sure sender is founder.
-			ensure!(sender == Self::founder_key().unwrap(), Error::<T>::OnlyFounderAllowed);
-
-			// Empty queues
-			T::MatchMaker::all_empty_queue();
 
 			Ok(())
 		}
@@ -384,6 +210,7 @@ pub mod pallet {
 			
 			// Make sure game exists.
 			ensure!(Games::<T>::contains_key(&game_id), Error::<T>::GameDoesntExist);
+			
 			// Make sure player has not already choosen in this game.
 			ensure!(!PlayerChoice::<T>::contains_key(&game_id, &sender), Error::<T>::PlayerChoiceExist);
 
@@ -484,14 +311,10 @@ impl<T: Config> Pallet<T> {
 		// get a random hash as board id
 		let game_id = Self::generate_random_hash(b"create", players[0].clone());
 
-		// get current blocknumber
-		let block_number = <frame_system::Pallet<T>>::block_number();
-
 		// create a new empty game
 		let game = Game {
 			id: game_id,
 			players: players.clone(),
-			last_action: block_number,
 			match_state: MatchState::Initiate(players.clone()),
 		};
 
@@ -535,7 +358,7 @@ impl<T: Config> Pallet<T> {
 
 	fn match_state_change(
 		player: T::AccountId,
-		mut game: Game<T::Hash, T::AccountId, T::BlockNumber>
+		mut game: Game<T::Hash, T::AccountId>
 	) -> bool {
 
 		match game.match_state.clone() {
@@ -579,16 +402,13 @@ impl<T: Config> Pallet<T> {
 			_ => return false,
 		}
 		
-		// get current blocknumber
-		let block_number = <frame_system::Pallet<T>>::block_number();
-		game.last_action = block_number;
 		Games::<T>::insert(game.id, game);
 		
 		true
 	}
 
 	fn evaluate(
-		game: Game<T::Hash, T::AccountId, T::BlockNumber>
+		game: Game<T::Hash, T::AccountId>
 	) -> T::AccountId {
 
 		let mut last_choice: WeaponType = Default::default();
@@ -607,9 +427,7 @@ impl<T: Config> Pallet<T> {
 						}
 					}
 				}
-
 			}
-			
 		}
 
 		last_player

@@ -29,8 +29,7 @@ frame_support::construct_runtime!(
 		UncheckedExtrinsic = UncheckedExtrinsic,
 	{
 		System: frame_system::{Pallet, Call, Config, Storage, Event<T>},
-		MatchMaker: pallet_matchmaker::{Pallet, Call, Storage, Event<T>},
-		RockPaperScissor: pallet_rps::{Pallet, Call, Config<T>, Storage, Event<T>},
+		RockPaperScissor: pallet_rps::{Pallet, Call, Storage, Event<T>},
 	}
 );
 
@@ -65,22 +64,9 @@ impl frame_system::Config for Test {
 	type OnSetCode = ();
 }
 
-parameter_types! {
-	pub const AmountPlayers: u8 = 2;
-	pub const AmountBrackets: u8 = 2;
-}
-
-/// Used for matchmaking in pallets/connectfour.
-impl pallet_matchmaker::Config for Test {
-	type Event = Event;
-	type AmountPlayers = AmountPlayers;
-	type AmountBrackets = AmountBrackets;
-}
-
 impl pallet_rps::Config for Test {
 	type Event = Event;
 	type Randomness = TestRandomness<Self>;
-	type MatchMaker = MatchMaker;
 }
 
 /// Build genesis storage according to the mock runtime.
@@ -88,7 +74,6 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	//frame_system::GenesisConfig::default().build_storage::<Test>().unwrap().into()
 	let t = GenesisConfig {
 			frame_system: Default::default(),
-			pallet_rps: Default::default(),
 		}.build_storage().unwrap();
 		t.into()
 }
