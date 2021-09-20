@@ -42,7 +42,7 @@ fn test_game_creation() {
 }
 
 #[test]
-fn try_simple_rps_game_1() {
+fn try_rps_player_1_win() {
 	new_test_ext().execute_with(|| {
 
 		let player_1:u64 = 1;
@@ -55,40 +55,31 @@ fn try_simple_rps_game_1() {
 		assert_ok!(RockPaperScissor::new_game(Origin::signed(player_1), player_2));
 		let game_id = RockPaperScissor::player_game(player_1);
 		let game = RockPaperScissor::games(game_id);
-		matches!(game.match_state, MatchState::Initiate(_));
+		matches!(game.states[0], MatchState::Choose);
+		matches!(game.states[1], MatchState::Choose);
 
-		run_next_block();
-
-		// Initiate phase
-		assert_ok!(RockPaperScissor::initiate(Origin::signed(player_1)));
-		let game = RockPaperScissor::games(game_id);
-		matches!(game.match_state, MatchState::Initiate(_));
-
-		run_next_block();
-
-		assert_ok!(RockPaperScissor::initiate(Origin::signed(player_2)));
-		let game = RockPaperScissor::games(game_id);
-		matches!(game.match_state, MatchState::Choose(_));
-		
 		run_next_block();
 
 		// Choose phase
 		assert_ok!(RockPaperScissor::choose(Origin::signed(player_2), WeaponType::Paper, salt_2));
 		let game = RockPaperScissor::games(game_id);
-		matches!(game.match_state, MatchState::Choose(_));
+		matches!(game.states[0], MatchState::Choose);
+		matches!(game.states[1], MatchState::Reveal);
 
 		run_next_block();
 
 		assert_ok!(RockPaperScissor::choose(Origin::signed(player_1), WeaponType::Scissor, salt_1));
 		let game = RockPaperScissor::games(game_id);
-		matches!(game.match_state, MatchState::Reveal(_));
+		matches!(game.states[0], MatchState::Reveal);
+		matches!(game.states[1], MatchState::Reveal);
 
 		run_next_block();
 
 		// Reveal phase
 		assert_ok!(RockPaperScissor::reveal(Origin::signed(player_1), WeaponType::Scissor, salt_1));
 		let game = RockPaperScissor::games(game_id);
-		matches!(game.match_state, MatchState::Reveal(_));
+		matches!(game.states[0], MatchState::Resolution);
+		matches!(game.states[1], MatchState::Reveal);
 
 		run_next_block();
 
@@ -100,19 +91,15 @@ fn try_simple_rps_game_1() {
 
 		assert_ok!(RockPaperScissor::reveal(Origin::signed(player_2), WeaponType::Paper, salt_2));
 		let game = RockPaperScissor::games(game_id);
-		matches!(game.match_state, MatchState::Finished(_));
 
-		// finished phase
-		if let MatchState::Finished(winner) = game.match_state {
-			assert_eq!(winner, player_1);
-		} else {
-			assert!(false);
-		}
+		matches!(game.states[0], MatchState::Won);
+		matches!(game.states[1], MatchState::Lose);
+
 	});
 }
 
 #[test]
-fn try_simple_rps_game_2() {
+fn try_rps_player_2_win() {
 	new_test_ext().execute_with(|| {
 
 		let player_1:u64 = 1;
@@ -124,47 +111,46 @@ fn try_simple_rps_game_2() {
 		// Create game
 		assert_ok!(RockPaperScissor::new_game(Origin::signed(player_1), player_2));
 		let game_id = RockPaperScissor::player_game(player_1);
+		let game = RockPaperScissor::games(game_id);
+		matches!(game.states[0], MatchState::Choose);
+		matches!(game.states[1], MatchState::Choose);
 
-		run_next_block();
-
-		// Initiate phase
-		assert_ok!(RockPaperScissor::initiate(Origin::signed(player_1)));
-
-		run_next_block();
-
-		assert_ok!(RockPaperScissor::initiate(Origin::signed(player_2)));
-		
 		run_next_block();
 
 		// Choose phase
-		assert_ok!(RockPaperScissor::choose(Origin::signed(player_2), WeaponType::Scissor, salt_2));
+		assert_ok!(RockPaperScissor::choose(Origin::signed(player_1), WeaponType::Rock, salt_1));
+		let game = RockPaperScissor::games(game_id);
+		matches!(game.states[0], MatchState::Reveal);
+		matches!(game.states[1], MatchState::Reveal);
 
 		run_next_block();
 
-		assert_ok!(RockPaperScissor::choose(Origin::signed(player_1), WeaponType::Paper, salt_1));
+		assert_ok!(RockPaperScissor::choose(Origin::signed(player_2), WeaponType::Paper, salt_2));
+		let game = RockPaperScissor::games(game_id);
+		matches!(game.states[0], MatchState::Choose);
+		matches!(game.states[1], MatchState::Reveal);
 
 		run_next_block();
 
 		// Reveal phase
-		assert_ok!(RockPaperScissor::reveal(Origin::signed(player_1), WeaponType::Paper, salt_1));
+		assert_ok!(RockPaperScissor::reveal(Origin::signed(player_1), WeaponType::Rock, salt_1));
+		let game = RockPaperScissor::games(game_id);
+		matches!(game.states[0], MatchState::Resolution);
+		matches!(game.states[1], MatchState::Reveal);
 
 		run_next_block();
 
-		assert_ok!(RockPaperScissor::reveal(Origin::signed(player_2), WeaponType::Scissor, salt_2));
+		assert_ok!(RockPaperScissor::reveal(Origin::signed(player_2), WeaponType::Paper, salt_2));
 		let game = RockPaperScissor::games(game_id);
-		matches!(game.match_state, MatchState::Finished(_));
-	
-		// finished phase
-		if let MatchState::Finished(winner) = game.match_state {
-			assert_eq!(winner, player_2);
-		} else {
-			assert!(false);
-		}
+
+		matches!(game.states[0], MatchState::Lose);
+		matches!(game.states[1], MatchState::Won);
+
 	});
 }
 
 #[test]
-fn try_simple_rps_game_3() {
+fn try_rps_players_draw() {
 	new_test_ext().execute_with(|| {
 
 		let player_1:u64 = 1;
@@ -176,41 +162,40 @@ fn try_simple_rps_game_3() {
 		// Create game
 		assert_ok!(RockPaperScissor::new_game(Origin::signed(player_1), player_2));
 		let game_id = RockPaperScissor::player_game(player_1);
+		let game = RockPaperScissor::games(game_id);
+		matches!(game.states[0], MatchState::Choose);
+		matches!(game.states[1], MatchState::Choose);
 
-		run_next_block();
-
-		// Initiate phase
-		assert_ok!(RockPaperScissor::initiate(Origin::signed(player_1)));
-
-		run_next_block();
-
-		assert_ok!(RockPaperScissor::initiate(Origin::signed(player_2)));
-		
 		run_next_block();
 
 		// Choose phase
-		assert_ok!(RockPaperScissor::choose(Origin::signed(player_2), WeaponType::Scissor, salt_2));
+		assert_ok!(RockPaperScissor::choose(Origin::signed(player_1), WeaponType::Rock, salt_1));
+		let game = RockPaperScissor::games(game_id);
+		matches!(game.states[0], MatchState::Reveal);
+		matches!(game.states[1], MatchState::Reveal);
 
 		run_next_block();
 
-		assert_ok!(RockPaperScissor::choose(Origin::signed(player_1), WeaponType::Scissor, salt_1));
+		assert_ok!(RockPaperScissor::choose(Origin::signed(player_2), WeaponType::Rock, salt_2));
+		let game = RockPaperScissor::games(game_id);
+		matches!(game.states[0], MatchState::Choose);
+		matches!(game.states[1], MatchState::Reveal);
 
 		run_next_block();
 
 		// Reveal phase
-		assert_ok!(RockPaperScissor::reveal(Origin::signed(player_1), WeaponType::Scissor, salt_1));
+		assert_ok!(RockPaperScissor::reveal(Origin::signed(player_1), WeaponType::Rock, salt_1));
+		let game = RockPaperScissor::games(game_id);
+		matches!(game.states[0], MatchState::Resolution);
+		matches!(game.states[1], MatchState::Reveal);
 
 		run_next_block();
 
-		assert_ok!(RockPaperScissor::reveal(Origin::signed(player_2), WeaponType::Scissor, salt_2));
+		assert_ok!(RockPaperScissor::reveal(Origin::signed(player_2), WeaponType::Rock, salt_2));
 		let game = RockPaperScissor::games(game_id);
-		matches!(game.match_state, MatchState::Finished(_));
-	
-		// finished phase
-		if let MatchState::Finished(winner) = game.match_state {
-			assert_eq!(winner, 0);
-		} else {
-			assert!(false);
-		}
+
+		matches!(game.states[0], MatchState::Draw);
+		matches!(game.states[1], MatchState::Draw);
+
 	});
 }

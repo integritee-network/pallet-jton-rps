@@ -29,14 +29,16 @@ mod tests;
 mod benchmarking;
 
 #[derive(Encode, Decode, Clone, PartialEq, Debug)]
-pub enum MatchState<AccountId> {
+pub enum MatchState {
 	None,
-	Initiate(Vec<AccountId>),
-	Choose(Vec<AccountId>),
-	Reveal(Vec<AccountId>),
-	Finished(AccountId),
+	Choose,
+	Reveal,
+	Resolution,
+	Won,
+	Draw,
+	Lose
 }
-impl<AccountId> Default for MatchState<AccountId> { fn default() -> Self { Self::None } }
+impl Default for MatchState { fn default() -> Self { Self::None } }
 
 #[derive(Encode, Decode, Clone, PartialEq, Debug)]
 pub enum WeaponType {
@@ -55,13 +57,13 @@ pub enum Choice<Hash> {
 }
 impl<Hash> Default for Choice<Hash> { fn default() -> Self { Self::None } }
 
-/// Connect four board structure containing two players and the board
 #[derive(Encode, Decode, Default, Clone, PartialEq)]
 #[cfg_attr(feature = "std", derive(Debug))]
 pub struct Game<Hash, AccountId> {
 	id: Hash,
-	players: Vec<AccountId>,
-	match_state: MatchState<AccountId>,
+	players: [AccountId; 2],
+	choices: [Choice<Hash>; 2],
+	states:  [MatchState; 2],
 }
 
 #[frame_support::pallet]
@@ -69,10 +71,8 @@ pub mod pallet {
 	use frame_support::{dispatch::DispatchResult, pallet_prelude::*};
 	use frame_system::pallet_prelude::*;
 
-	// important to use outside structs and consts
 	use super::*;
 
-	/// Configure the pallet by specifying the parameters and types on which it depends.
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
 
@@ -104,13 +104,6 @@ pub mod pallet {
 	/// Store players active games, currently only one game per player allowed.
 	pub type PlayerGame<T: Config> = StorageMap<_, Identity, T::AccountId, T::Hash, ValueQuery>;
 
-	#[pallet::storage]
-	#[pallet::getter(fn player_choice)]
-	/// Player choices of each game.
-	pub type PlayerChoice<T: Config> = StorageDoubleMap<_, Blake2_128Concat, T::Hash, Blake2_128Concat, T::AccountId, Choice<T::Hash>, ValueQuery>;
-
-	// Pallets use events to inform users when important changes are made.
-	// https://substrate.dev/docs/en/knowledgebase/runtime/events
 	#[pallet::event]
 	#[pallet::metadata(T::AccountId = "AccountId")]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -118,7 +111,7 @@ pub mod pallet {
 		/// A new game got created.
 		NewGame(T::Hash),
 		/// A games match state changed.
-		MatchStateChange(T::Hash, MatchState<T::AccountId>),
+		MatchStateChange(T::Hash, T::AccountId, MatchState),
 	}
 
 	// Errors inform users that something went wrong.
@@ -161,43 +154,10 @@ pub mod pallet {
 			ensure!(!PlayerGame::<T>::contains_key(&sender), Error::<T>::PlayerHasGame);
 			ensure!(!PlayerGame::<T>::contains_key(&opponent), Error::<T>::PlayerHasGame);
 			
-			let mut players = Vec::new();
-			players.push(sender.clone());
-			players.push(opponent.clone());
-
 			// Create new game
-			let _game_id = Self::create_game(players);
+			let _game_id = Self::create_game([sender, opponent]);
 
 			Ok(())
-		}
-
-		#[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
-		pub fn initiate(origin: OriginFor<T>) -> DispatchResult {
-			let sender = ensure_signed(origin)?;
-
-			// Make sure player has a running game.
-			ensure!(PlayerGame::<T>::contains_key(&sender), Error::<T>::GameDoesntExist);
-			let game_id = Self::player_game(&sender);
-
-			// Make sure game exists.
-			ensure!(Games::<T>::contains_key(&game_id), Error::<T>::GameDoesntExist);
-
-			// get players game
-			let game = Self::games(&game_id);
-
-			// check if we have correct state
-			if let MatchState::Initiate(_) = game.match_state {
-				// check we have the correct state
-			} else {
-				Err(Error::<T>::BadBehaviour)?
-			}
-
-			// match state change
-			if !Self::match_state_change(sender, game) {
-				Err(Error::<T>::BadBehaviour)?
-			}
-				
-			Ok(())		
 		}
 
 		#[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
@@ -211,26 +171,28 @@ pub mod pallet {
 			// Make sure game exists.
 			ensure!(Games::<T>::contains_key(&game_id), Error::<T>::GameDoesntExist);
 			
-			// Make sure player has not already choosen in this game.
-			ensure!(!PlayerChoice::<T>::contains_key(&game_id, &sender), Error::<T>::PlayerChoiceExist);
-
 			// get players game
-			let game = Self::games(&game_id);
+			let mut game = Self::games(&game_id);
 
-			// check if we have correct state
-			if let MatchState::Choose(_) = game.match_state {
-				// check we have the correct state
-			} else {
-				Err(Error::<T>::BadBehaviour)?
+			// get index of current player
+			let mut me = 0;
+			if game.players[1] == sender {
+				me = 1;
+			} else  {
+				ensure!(game.players[0] == sender, Error::<T>::BadBehaviour);
 			}
 
-			// insert choice into the double map.
-			<PlayerChoice<T>>::insert(game_id, &sender, Choice::Choose(Self::hash_choice(salt, choice as u8)));
+			// Make sure player has not already choosen in this game.
+			ensure!(game.states[me] == MatchState::Choose, Error::<T>::PlayerChoiceExist);
 
-			// match state change
-			if !Self::match_state_change(sender, game) {
-				Err(Error::<T>::BadBehaviour)?
-			}
+			// add choice to game.
+			game.choices[me] = Choice::Choose(Self::hash_choice(salt, choice as u8));
+
+			// change player state
+			game.states[me] = MatchState::Reveal;
+
+			// write states and choices back to storage
+			Games::<T>::insert(game.id, game);
 
 			Ok(())
 		}
@@ -245,27 +207,31 @@ pub mod pallet {
 
 			// Make sure game exists.
 			ensure!(Games::<T>::contains_key(&game_id), Error::<T>::GameDoesntExist);
-			// Make sure player has already choosen in this game.
-			ensure!(PlayerChoice::<T>::contains_key(&game_id, &sender), Error::<T>::PlayerChoiceDoesntExist);
-
-			// get choice of player
-			let player_choice = PlayerChoice::<T>::get(&game_id, &sender);
 
 			// get players game
-			let game = Self::games(&game_id);
+			let mut game = Self::games(&game_id);
 
-			// check if we have correct state
-			if let MatchState::Reveal(_) = game.match_state {
-				// check we have the correct state
-			} else {
-				Err(Error::<T>::BadBehaviour)?
+			// get index of current player
+			let mut me = 0;
+			if game.players[1] == sender {
+				me = 1;
+			} else  {
+				ensure!(game.players[0] == sender, Error::<T>::BadBehaviour);
 			}
+			let he = (me + 1) % 2;
 
+			// Make sure both players have made their choice and are in the reveal state.
+			ensure!(game.states[me] == MatchState::Reveal && (game.states[he] == MatchState::Reveal || game.states[he] == MatchState::Resolution), Error::<T>::BadBehaviour);
+
+			// get choice of player
+			let player_choice = game.choices[me].clone();
+
+			// check if the hash of the choice matches with the weapon unrevealed
 			match player_choice {
 				Choice::Choose(org_hash) => {
 					// compare persisted hash with revealing value
 					if org_hash == Self::hash_choice(salt, choice.clone() as u8)  {
-						PlayerChoice::<T>::insert(&game_id, &sender, Choice::Reveal(choice));
+						game.choices[me] = Choice::Reveal(choice);
 					} else {
 						Err(Error::<T>::BadBehaviour)?
 					}
@@ -273,10 +239,43 @@ pub mod pallet {
 				_ => Err(Error::<T>::BadBehaviour)?,
 			}
 
-			// match state change
-			if !Self::match_state_change(sender, game) {
-				Err(Error::<T>::BadBehaviour)?
+			// change player state
+			game.states[me] = MatchState::Resolution;
+			
+			// resolve game if both players waiting for resolution
+			if game.states[0] == MatchState::Resolution && game.states[1] == MatchState::Resolution {
+
+				let mut me_weapon: WeaponType = WeaponType::None;
+				if let Choice::Reveal(weapon) = game.choices[me].clone() { 
+					me_weapon = weapon;
+				}
+				let mut he_weapon: WeaponType = WeaponType::None;
+				if let Choice::Reveal(weapon) = game.choices[he].clone() {
+					he_weapon = weapon;
+				}		
+
+				match Self::game_logic(&me_weapon, &he_weapon) {
+					0 => {
+						game.states[me] = MatchState::Draw;
+						game.states[he] = MatchState::Draw;
+					},
+					1 => {
+						game.states[me] = MatchState::Won;
+						game.states[he] = MatchState::Lose;
+					},
+					2 => {
+						game.states[me] = MatchState::Lose;
+						game.states[he] = MatchState::Won;
+					},
+					_ => {
+						game.states[me] = MatchState::Draw;
+						game.states[he] = MatchState::Draw;
+					}, 
+				}
 			}
+
+			// write states and choices back to storage
+			Games::<T>::insert(game.id, game);
 
 			Ok(())
 		}
@@ -305,7 +304,7 @@ impl<T: Config> Pallet<T> {
 	}
 
 	fn create_game(
-		players: Vec<T::AccountId>
+		players: [T::AccountId; 2]
 	) -> T::Hash {
 
 		// get a random hash as board id
@@ -315,13 +314,14 @@ impl<T: Config> Pallet<T> {
 		let game = Game {
 			id: game_id,
 			players: players.clone(),
-			match_state: MatchState::Initiate(players.clone()),
+			choices: [Choice::None, Choice::None],
+			states: [ MatchState::Choose, MatchState::Choose],
 		};
 
 		// insert the new board into the storage
 		<Games<T>>::insert(game_id, game);
 
-		// insert conenction for each player with the game
+		// insert connection for each player with the game
 		for player in &players {
 			<PlayerGame<T>>::insert(player, game_id);
 		}
@@ -341,96 +341,6 @@ impl<T: Config> Pallet<T> {
 		let choice_hashed = blake2_256(&choice_value);
 		// return hashed choice
 		choice_hashed.using_encoded(T::Hashing::hash)
-	}
-
-	fn try_remove(
-		player: T::AccountId,
-		players: &mut Vec<T::AccountId>
-	) -> bool {
-		if let Some(p) = players.iter().position(|x| *x == player) {
-			// remove player from vec
-			players.swap_remove(p);
-			return true;
-		} 
-		
-		false
-	}
-
-	fn match_state_change(
-		player: T::AccountId,
-		mut game: Game<T::Hash, T::AccountId>
-	) -> bool {
-
-		match game.match_state.clone() {
-
-			MatchState::Initiate(mut players) => {
-				if !Self::try_remove(player, &mut players) {
-					return false;
-				}
-				// check if all players have initiated
-				if players.is_empty() {
-					game.match_state = MatchState::Choose(game.players.clone());
-				} else {
-					game.match_state = MatchState::Initiate(players);
-				}				
-			},
-
-			MatchState::Choose(mut players) => {
-				if !Self::try_remove(player, &mut players) {
-					return false;
-				}
-				// check if all players have choosen
-				if players.is_empty() {
-					game.match_state = MatchState::Reveal(game.players.clone());
-				} else {
-					game.match_state = MatchState::Choose(players);
-				}
-			},
-
-			MatchState::Reveal(mut players) => {
-				if !Self::try_remove(player, &mut players) {
-					return false;
-				}
-				// check if all players have revealed
-				if players.is_empty() {
-					// do game evaluation here
-					game.match_state = MatchState::Finished(Self::evaluate(game.clone()));
-				} else {
-					game.match_state = MatchState::Reveal(players);
-				}
-			},
-			_ => return false,
-		}
-		
-		Games::<T>::insert(game.id, game);
-		
-		true
-	}
-
-	fn evaluate(
-		game: Game<T::Hash, T::AccountId>
-	) -> T::AccountId {
-
-		let mut last_choice: WeaponType = Default::default();
-		let mut last_player: T::AccountId = Default::default();
-		for player in &game.players {
-			if PlayerChoice::<T>::contains_key(game.id, player) {
-				if let Choice::Reveal(choice) = Self::player_choice(game.id, player) {
-					match Self::game_logic(&choice, &last_choice) {
-						1 => {
-							last_choice = choice.clone();
-							last_player = player.clone();
-						},
-						2 => {},
-						_ => {
-							last_player = Default::default();
-						}
-					}
-				}
-			}
-		}
-
-		last_player
 	}
 
 	fn game_logic(
