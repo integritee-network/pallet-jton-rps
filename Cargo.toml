@@ -21,13 +21,12 @@ sp-runtime = {default-features = false, version = '4.0.0-dev', git = 'https://gi
 sp-io = {default-features = false, version = '4.0.0-dev', git = 'https://github.com/paritytech/substrate.git', branch = 'master'}
 
 # Substrate dependencies
-frame-benchmarking = {default-features = false, optional = true, version = '4.0.0-dev', git = 'https://github.com/paritytech/substrate.git', branch = 'master'}
 frame-support = {default-features = false, version = '4.0.0-dev', git = 'https://github.com/paritytech/substrate.git', branch = 'master'}
 frame-system = {default-features = false, version = '4.0.0-dev', git = 'https://github.com/paritytech/substrate.git', branch = 'master'}
 
 [features]
 default = ['std']
-runtime-benchmarks = ['frame-benchmarking/std']
+
 std = [
 	'codec/std',
 	'sp-std/std',
@@ -36,4 +35,4 @@ std = [
 	'frame-support/std',
 	'frame-system/std',
 ]
-try-runtime = ['frame-support/try-runtime']
+
