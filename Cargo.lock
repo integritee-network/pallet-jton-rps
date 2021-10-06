@@ -1230,24 +1230,12 @@ dependencies = [
  "frame-support",
  "frame-support-test",
  "frame-system",
- "pallet-matchmaker",
  "pallet-scheduler",
  "parity-scale-codec",
  "serde",
  "sp-core",
  "sp-io",
  "sp-runtime",
- "sp-std",
-]
-
-[[package]]
-name = "pallet-matchmaker"
-version = "0.1.0"
-source = "git+https://github.com/integritee-network/pallet-jton-matchmaker.git?branch=integritee-demo#53e442348212d91ecd804c90c48263c4f416cb5a"
-dependencies = [
- "frame-support",
- "frame-system",
- "parity-scale-codec",
  "sp-std",
 ]
 
