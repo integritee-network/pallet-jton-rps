@@ -1243,9 +1243,8 @@ dependencies = [
 [[package]]
 name = "pallet-matchmaker"
 version = "0.1.0"
-source = "git+https://github.com/integritee-network/pallet-jton-matchmaker.git?branch=integritee-demo#7d1141a891dbeb284e6c386bbed8ad864f6cddda"
+source = "git+https://github.com/integritee-network/pallet-jton-matchmaker.git?branch=integritee-demo#53e442348212d91ecd804c90c48263c4f416cb5a"
 dependencies = [
- "frame-benchmarking",
  "frame-support",
  "frame-system",
  "parity-scale-codec",

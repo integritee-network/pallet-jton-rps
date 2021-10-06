@@ -36,7 +36,7 @@ pallet-scheduler = {default-features = false, version = '4.0.0-dev', git = 'http
 
 [features]
 default = ['std']
-runtime-benchmarks = ['frame-benchmarking']
+runtime-benchmarks = ['frame-benchmarking/std']
 std = [
 	'codec/std',
 	'sp-std/std',
@@ -44,7 +44,6 @@ std = [
 	'sp-io/std',
 	'frame-support/std',
 	'frame-system/std',
-	'frame-benchmarking/std',
 	'pallet-matchmaker/std',
 ]
 try-runtime = ['frame-support/try-runtime']
