@@ -25,7 +25,7 @@ mod tests;
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
 
-#[derive(Encode, Decode, Clone, PartialEq, Debug)]
+#[derive(Encode, Decode, Clone, PartialEq, Eq, Debug)]
 pub enum MatchState {
 	None,
 	Choose,
@@ -37,7 +37,7 @@ pub enum MatchState {
 }
 impl Default for MatchState { fn default() -> Self { Self::None } }
 
-#[derive(Encode, Decode, Clone, PartialEq, Debug)]
+#[derive(Encode, Decode, Clone, PartialEq, Eq, Debug)]
 pub enum WeaponType {
 	None,
 	Rock,
@@ -46,7 +46,7 @@ pub enum WeaponType {
 }
 impl Default for WeaponType { fn default() -> Self { Self::None } }
 
-#[derive(Encode, Decode, Clone, PartialEq, Debug)]
+#[derive(Encode, Decode, Clone, PartialEq, Eq, Debug)]
 pub enum Choice<Hash> {
 	None,
 	Choose(Hash),
@@ -54,7 +54,7 @@ pub enum Choice<Hash> {
 }
 impl<Hash> Default for Choice<Hash> { fn default() -> Self { Self::None } }
 
-#[derive(Encode, Decode, Default, Clone, PartialEq)]
+#[derive(Encode, Decode, Default, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(Debug))]
 pub struct Game<Hash, AccountId> {
 	id: Hash,
