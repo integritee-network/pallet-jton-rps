@@ -293,7 +293,9 @@ impl<T: Config> Pallet<T> {
 		sender: T::AccountId
 	) -> T::Hash {
 		// FIXME: fake random for now
-		let seed: T::Hash = phrase.using_encoded(T::Hashing::hash);
+		let mut seed = <frame_system::Pallet<T>>::block_number().encode();
+		seed.append(&mut phrase.to_vec());
+		let seed: T::Hash = seed.using_encoded(T::Hashing::hash);
 		let seed = <[u8; 32]>::decode(&mut TrailingZeroInput::new(seed.as_ref()))
 			.expect("input is padded with zeroes; qed");
 		return (seed, &sender, Self::encode_and_update_nonce()).using_encoded(T::Hashing::hash);
