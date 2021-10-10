@@ -33,7 +33,7 @@ pub enum MatchState {
 	Resolution,
 	Won,
 	Draw,
-	Lose
+	Lost
 }
 impl Default for MatchState { fn default() -> Self { Self::None } }
 
@@ -42,7 +42,7 @@ pub enum WeaponType {
 	None,
 	Rock,
 	Paper,
-	Scissor,
+	Scissors,
 }
 impl Default for WeaponType { fn default() -> Self { Self::None } }
 
@@ -256,10 +256,10 @@ pub mod pallet {
 					},
 					1 => {
 						game.states[me] = MatchState::Won;
-						game.states[he] = MatchState::Lose;
+						game.states[he] = MatchState::Lost;
 					},
 					2 => {
-						game.states[me] = MatchState::Lose;
+						game.states[me] = MatchState::Lost;
 						game.states[he] = MatchState::Won;
 					},
 					_ => {
@@ -365,13 +365,13 @@ impl<T: Config> Pallet<T> {
 			WeaponType::Paper => {
 				if a == b {
 					return 0;
-				} else if let WeaponType::Scissor = b {
+				} else if let WeaponType::Scissors = b {
 					return 2;
 				} else {
 					return 1;
 				}
 			},
-			WeaponType::Scissor => {
+			WeaponType::Scissors => {
 				if a == b {
 					return 0;
 				} else if let WeaponType::Rock = b {
