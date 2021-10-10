@@ -57,10 +57,10 @@ impl<Hash> Default for Choice<Hash> { fn default() -> Self { Self::None } }
 #[derive(Encode, Decode, Default, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(Debug))]
 pub struct Game<Hash, AccountId> {
-	id: Hash,
-	players: [AccountId; 2],
-	choices: [Choice<Hash>; 2],
-	states:  [MatchState; 2],
+	pub id: Hash,
+	pub players: [AccountId; 2],
+	pub choices: [Choice<Hash>; 2],
+	pub states:  [MatchState; 2],
 }
 
 #[frame_support::pallet]
