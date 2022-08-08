@@ -1172,6 +1172,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "parity-scale-codec",
+ "scale-info",
  "sp-io",
  "sp-runtime",
  "sp-std",
