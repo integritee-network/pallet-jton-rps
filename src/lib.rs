@@ -3,7 +3,7 @@
 /// Edit this file to define custom logic or remove it if it is not needed.
 /// Learn more about FRAME and the core library of Substrate FRAME pallets:
 /// <https://substrate.dev/docs/en/knowledgebase/runtime/frame>
-use codec::{Decode, Encode};
+use codec::{Decode, Encode, MaxEncodedLen};
 use frame_support::traits::Get;
 use frame_system::{self};
 use scale_info::TypeInfo;
@@ -23,7 +23,7 @@ mod tests;
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
 
-#[derive(Encode, Decode, Clone, PartialEq, Eq, Debug, TypeInfo)]
+#[derive(Encode, Decode, Clone, PartialEq, Eq, Debug, TypeInfo, MaxEncodedLen)]
 pub enum MatchState {
     None,
     Choose,
@@ -39,7 +39,7 @@ impl Default for MatchState {
     }
 }
 
-#[derive(Encode, Decode, Clone, PartialEq, Eq, Debug, TypeInfo)]
+#[derive(Encode, Decode, Clone, PartialEq, Eq, Debug, TypeInfo, MaxEncodedLen)]
 pub enum WeaponType {
     None,
     Rock,
@@ -52,7 +52,7 @@ impl Default for WeaponType {
     }
 }
 
-#[derive(Encode, Decode, Clone, PartialEq, Eq, Debug, TypeInfo)]
+#[derive(Encode, Decode, Clone, PartialEq, Eq, Debug, TypeInfo, MaxEncodedLen)]
 pub enum Choice<Hash> {
     None,
     Choose(Hash),
@@ -64,7 +64,7 @@ impl<Hash> Default for Choice<Hash> {
     }
 }
 
-#[derive(Encode, Decode, Default, Clone, PartialEq, Eq, TypeInfo)]
+#[derive(Encode, Decode, Default, Clone, PartialEq, Eq, TypeInfo, MaxEncodedLen)]
 #[cfg_attr(feature = "std", derive(Debug))]
 pub struct Game<Hash, AccountId> {
     pub id: Hash,
@@ -102,7 +102,7 @@ pub mod pallet {
     #[pallet::getter(fn games)]
     /// Store all games that are currently being played.
     pub type Games<T: Config> =
-        StorageMap<_, Identity, T::Hash, Game<T::Hash, T::AccountId>, ValueQuery>;
+        StorageMap<_, Identity, T::Hash, Game<T::Hash, T::AccountId>, OptionQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn player_game)]
@@ -178,14 +178,8 @@ pub mod pallet {
             );
             let game_id = Self::player_game(&sender);
 
-            // Make sure game exists.
-            ensure!(
-                Games::<T>::contains_key(&game_id),
-                Error::<T>::GameDoesntExist
-            );
-
             // get players game
-            let mut game = Self::games(&game_id);
+            let mut game = Self::games(&game_id).ok_or(Error::<T>::GameDoesntExist)?;
 
             // get index of current player
             let mut me = 0;
@@ -224,14 +218,8 @@ pub mod pallet {
             );
             let game_id = Self::player_game(&sender);
 
-            // Make sure game exists.
-            ensure!(
-                Games::<T>::contains_key(&game_id),
-                Error::<T>::GameDoesntExist
-            );
-
-            // get players game
-            let mut game = Self::games(&game_id);
+           // get players game
+            let mut game = Self::games(&game_id).ok_or(Error::<T>::GameDoesntExist)?;
 
             // get index of current player
             let mut me = 0;
